@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MIRA Bluetooth Test</title>
+
+<style>
+    * {
+        box-sizing: border-box;
+    }
+
+    body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #111318;
+        color: white;
+        min-height: 100vh;
+        padding: 20px;
+    }
+
+    .container {
+        max-width: 700px;
+        margin: auto;
+    }
+
+    h1 {
+        text-align: center;
+        margin-bottom: 5px;
+    }
+
+    .subtitle {
+        text-align: center;
+        color: #aaa;
+        margin-bottom: 25px;
+    }
+
+    .card {
+        background: #1b1e25;
+        border-radius: 18px;
+        padding: 20px;
+        margin-bottom: 16px;
+        box-shadow: 0 5px 20px rgba(0,0,0,.25);
+    }
+
+    button {
+        width: 100%;
+        padding: 15px;
+        margin-top: 10px;
+        border: 0;
+        border-radius: 12px;
+        background: #ffffff;
+        color: #111;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+    }
+
+    button:active {
+        transform: scale(.98);
+    }
+
+    button.disconnect {
+        background: #333842;
+        color: white;
+    }
+
+    .status {
+        padding: 15px;
+        border-radius: 12px;
+        background: #252933;
+        margin-top: 15px;
+        word-break: break-word;
+    }
+
+    .connected {
+        color: #55e68a;
+    }
+
+    .error {
+        color: #ff6b6b;
+    }
+
+    .service {
+        background: #252933;
+        border-radius: 12px;
+        padding: 15px;
+        margin-top: 12px;
+    }
+
+    .uuid {
+        font-family: monospace;
+        font-size: 13px;
+        color: #aaa;
+        word-break: break-all;
+    }
+
+    .small {
+        color: #aaa;
+        font-size: 13px;
+        line-height: 1.5;
+    }
+
+    #services {
+        margin-top: 15px;
+    }
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <h1>💡 MIRA Smart Light</h1>
+
+    <div class="subtitle">
+        Bluetooth / BLE Test
+    </div>
+
+    <div class="card">
+
+        <h2>🔵 Bluetooth</h2>
+
+        <p class="small">
+            Schalte die MIRA zuerst ein und halte sie möglichst nahe
+            beim iPhone.
+        </p>
+
+        <button onclick="connectBluetooth()">
+            🔍 MIRA Bluetooth suchen
+        </button>
+
+        <button class="disconnect" onclick="disconnectBluetooth()">
+            ❌ Verbindung trennen
+        </button>
+
+        <div id="status" class="status">
+            Noch nicht verbunden.
+        </div>
+
+    </div>
+
+    <div class="card">
+
+        <h2>📡 Bluetooth-Daten</h2>
+
+        <div id="deviceInfo" class="small">
+            Noch kein Gerät verbunden.
+        </div>
+
+        <div id="services">
+        </div>
+
+    </div>
+
+</div>
+
+<script>
+
+let bluetoothDevice = null;
+let bluetoothServer = null;
+
+
+/* --------------------------------
+   STATUS
+-------------------------------- */
+
+function setStatus(message, type = "") {
+
+    const status = document.getElementById("status");
+
+    status.textContent = message;
+
+    status.className = "status " + type;
+}
+
+
+/* --------------------------------
+   BLUETOOTH VERBINDEN
+-------------------------------- */
+
+async function connectBluetooth() {
+
+    try {
+
+        if (!navigator.bluetooth) {
+
+            setStatus(
+                "❌ Bluetooth Web API wird von diesem Browser nicht unterstützt.",
+                "error"
+            );
+
+            return;
+        }
+
+        setStatus(
+            "🔍 Suche nach Bluetooth-Geräten..."
+        );
+
+
+        /*
+         * Wir verwenden acceptAllDevices,
+         * damit wir zunächst sehen können,
+         * ob die MIRA überhaupt BLE anbietet.
+         */
+
+        bluetoothDevice =
+            await navigator.bluetooth.requestDevice({
+
+                acceptAllDevices: true,
+
+                optionalServices: [
+                    "battery_service",
+                    "device_information"
+                ]
+
+            });
+
+
+        console.log("Gerät:", bluetoothDevice);
+
+
+        document.getElementById("deviceInfo").innerHTML =
+
+            "<b>Name:</b> " +
+            (bluetoothDevice.name || "unbekannt") +
+            "<br><br>" +
+
+            "<b>ID:</b><br>" +
+            bluetoothDevice.id;
+
+
+        setStatus(
+            "🔄 Verbinde mit " +
+            (bluetoothDevice.name || "Gerät") +
+            "..."
+        );
+
+
+        bluetoothServer =
+            await bluetoothDevice.gatt.connect();
+
+
+        setStatus(
+            "✅ Bluetooth verbunden!",
+            "connected"
+        );
+
+
+        await readServices();
+
+
+        bluetoothDevice.addEventListener(
+            "gattserverdisconnected",
+            handleDisconnect
+        );
+
+    }
+
+    catch(error) {
+
+        console.error(error);
+
+        setStatus(
+            "❌ Fehler: " + error.message,
+            "error"
+        );
+    }
+}
+
+
+/* --------------------------------
+   SERVICES AUSLESEN
+-------------------------------- */
+
+async function readServices() {
+
+    const servicesContainer =
+        document.getElementById("services");
+
+    servicesContainer.innerHTML =
+        "<p>🔍 Suche Bluetooth-Services...</p>";
+
+
+    try {
+
+        const services =
+            await bluetoothServer.getPrimaryServices();
+
+
+        servicesContainer.innerHTML =
+            "<h3>Gefundene Services: " +
+            services.length +
+            "</h3>";
+
+
+        for (const service of services) {
+
+            const serviceBox =
+                document.createElement("div");
+
+            serviceBox.className = "service";
+
+
+            serviceBox.innerHTML =
+
+                "<b>Service</b><br>" +
+
+                "<div class='uuid'>" +
+                service.uuid +
+                "</div>" +
+
+                "<br>" +
+
+                "<span class='small'>" +
+                "Suche Characteristics..." +
+                "</span>";
+
+
+            servicesContainer.appendChild(
+                serviceBox
+            );
+
+
+            try {
+
+                const characteristics =
+                    await service.getCharacteristics();
+
+
+                let html =
+
+                    "<b>Service</b><br>" +
+
+                    "<div class='uuid'>" +
+                    service.uuid +
+                    "</div>" +
+
+                    "<br>" +
+
+                    "<b>Characteristics: " +
+                    characteristics.length +
+                    "</b>";
+
+
+                for (
+                    const characteristic
+                    of characteristics
+                ) {
+
+                    html +=
+
+                        "<div style='margin-top:12px;'>" +
+
+                        "<span class='small'>" +
+                        "Characteristic" +
+                        "</span><br>" +
+
+                        "<div class='uuid'>" +
+                        characteristic.uuid +
+                        "</div>" +
+
+                        "<span class='small'>" +
+
+                        "Eigenschaften: " +
+
+                        characteristic.properties
+                            ? Object.keys(
+                                characteristic.properties
+                              ).filter(
+                                key =>
+                                characteristic
+                                .properties[key]
+                              ).join(", ")
+                            : "unbekannt"
+
+                        +
+
+                        "</span>" +
+
+                        "</div>";
+                }
+
+
+                serviceBox.innerHTML = html;
+
+            }
+
+            catch(error) {
+
+                serviceBox.innerHTML +=
+
+                    "<p class='error'>" +
+                    "Characteristics konnten " +
+                    "nicht gelesen werden." +
+                    "</p>";
+            }
+
+        }
+
+    }
+
+    catch(error) {
+
+        console.error(error);
+
+        servicesContainer.innerHTML =
+
+            "<p class='error'>" +
+            "Services konnten nicht gelesen werden:<br>" +
+            error.message +
+            "</p>";
+    }
+}
+
+
+/* --------------------------------
+   TRENNEN
+-------------------------------- */
+
+function disconnectBluetooth() {
+
+    if (
+        bluetoothDevice &&
+        bluetoothDevice.gatt &&
+        bluetoothDevice.gatt.connected
+    ) {
+
+        bluetoothDevice.gatt.disconnect();
+    }
+
+    bluetoothDevice = null;
+    bluetoothServer = null;
+
+
+    document.getElementById(
+        "services"
+    ).innerHTML = "";
+
+
+    document.getElementById(
+        "deviceInfo"
+    ).innerHTML =
+        "Noch kein Gerät verbunden.";
+
+
+    setStatus(
+        "Verbindung getrennt."
+    );
+}
+
+
+/* --------------------------------
+   DISCONNECT EVENT
+-------------------------------- */
+
+function handleDisconnect() {
+
+    setStatus(
+        "⚠️ Bluetooth-Verbindung wurde getrennt.",
+        "error"
+    );
+}
+
+</script>
+
+</body>
+</html>
